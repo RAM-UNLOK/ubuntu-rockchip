@@ -1,4 +1,3 @@
 GIT=https://github.com/radxa/u-boot.git
-COMMIT=f73b1eede495c82cd5d7ed20cc484a22d670136f
-BRANCH=next-dev-v2024.03
-VERSION=2017.09+20240806.gitf73b1eed
+COMMIT=e4a8ad00d995712179a2258d76caba6f05b4193a
+BRANCH=next-dev-v2024.10
