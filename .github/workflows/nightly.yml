@@ -7,7 +7,7 @@ run-name: Nightly build Release
 jobs:
 
   config:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     name: Create martrix
     outputs:
       build_matrix: ${{ steps.build.outputs.build_matrix }}
@@ -45,22 +45,12 @@ jobs:
             echo "rootfs_matrix={\"include\":[${rootfs_matrix::-1}]}" >> $GITHUB_OUTPUT
 
   rootfs:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     name: Build rootfs 
     needs: [config]
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.rootfs_matrix) }}
     steps:
-      - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -93,22 +83,12 @@ jobs:
             if-no-files-found: error
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: [rootfs, config]
     name: Build image 
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
-      - name: Get more disk space
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          swap-storage: true
-
       - name: Checkout code
         uses: actions/checkout@v4
 
