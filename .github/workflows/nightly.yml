@@ -139,12 +139,12 @@ jobs:
         shell: bash
         run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
 
-      - name: Upload
+      - name: Upload To Github Release
         uses: xresloader/upload-to-github-release@v1
         with:
-          release_id: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
+          default_release_name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
           file: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
-          draft: true
+          prerelease: true
           overwrite: true
 
       - name: Clean cache

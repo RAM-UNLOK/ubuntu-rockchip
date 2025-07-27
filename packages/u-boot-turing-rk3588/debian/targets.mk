@@ -2,8 +2,8 @@
 # debian/rules includes this Makefile snippet.
 
 u-boot-rockchip_platforms += turing-rk1-rk3588
-turing-rk1-rk3588_ddr := rk3588_ddr_lp4_2112MHz_lp5_2400MHz_v1.18.bin
-turing-rk1-rk3588_bl31 := rk3588_bl31_v1.48.elf
+turing-rk1-rk3588_ddr := rk3588_ddr_lp4_2112MHz_lp5_2400MHz_v1.19.bin
+turing-rk1-rk3588_bl31 := rk3588_bl31_v1.50.elf
 turing-rk1-rk3588_pkg := turing-rk1
 
 u-boot-rockchip_platforms += orangepi-3b-rk3566
