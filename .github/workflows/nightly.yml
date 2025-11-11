@@ -1,13 +1,13 @@
 name: Nightly Build
-run-name: Nightly build
 on:
-  schedule:
-    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+run-name: Nightly build Release
 
 jobs:
 
   config:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     name: Create martrix
     outputs:
       build_matrix: ${{ steps.build.outputs.build_matrix }}
@@ -45,7 +45,7 @@ jobs:
             echo "rootfs_matrix={\"include\":[${rootfs_matrix::-1}]}" >> $GITHUB_OUTPUT
 
   rootfs:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     name: Build rootfs 
     needs: [config]
     strategy:
@@ -75,25 +75,25 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get upgrade -y
           sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bison \
-          qemu-user-static qemu-system-arm qemu-efi u-boot-tools binfmt-support \
+          qemu-user-static qemu-system-arm qemu-efi-aarch64 u-boot-tools binfmt-support \
           debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
-          udev dosfstools uuid-runtime git-lfs device-tree-compiler python2 python3 \
+          udev dosfstools uuid-runtime git-lfs device-tree-compiler python3 \
           python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
+          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
 
       - name: Build
         shell: bash
         run: sudo ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only --launchpad
 
       - name: Upload
-        uses: actions/upload-artifact@v4.3.3
+        uses: actions/upload-artifact@v4
         with:
             name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
             path: ./build/ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64.rootfs.tar.xz
             if-no-files-found: error
 
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [rootfs, config]
     name: Build image 
     strategy:
@@ -119,7 +119,7 @@ jobs:
           echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
 
       - name: Checkout rootfs
-        uses: actions/download-artifact@v4.1.2
+        uses: actions/download-artifact@v4
         with:
             name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
             path: ./build/
@@ -129,22 +129,23 @@ jobs:
         run: |
           sudo apt-get update && sudo apt-get upgrade -y
           sudo apt-get install -y build-essential gcc-aarch64-linux-gnu bison \
-          qemu-user-static qemu-system-arm qemu-efi u-boot-tools binfmt-support \
+          qemu-user-static qemu-system-arm qemu-efi-aarch64 u-boot-tools binfmt-support \
           debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
-          udev dosfstools uuid-runtime git-lfs device-tree-compiler python2 python3 \
+          udev dosfstools uuid-runtime git-lfs device-tree-compiler python3 \
           python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
+          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
 
       - name: Build
         shell: bash
         run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
 
-      - name: Upload
-        uses: actions/upload-artifact@v4.3.3
+      - name: Upload To Github Release
+        uses: xresloader/upload-to-github-release@v1
         with:
-          name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
-          path: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
-          if-no-files-found: error
+          default_release_name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
+          file: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
+          prerelease: true
+          overwrite: true
 
       - name: Clean cache
         shell: bash
