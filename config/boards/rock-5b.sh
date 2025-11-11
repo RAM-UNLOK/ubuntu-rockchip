@@ -6,15 +6,15 @@ export BOARD_SOC="Rockchip RK3588"
 export BOARD_CPU="ARM Cortex A76 / A55"
 export UBOOT_PACKAGE="u-boot-radxa-rk3588"
 export UBOOT_RULES_TARGET="rock-5b-rk3588"
-export COMPATIBLE_SUITES=("jammy" "noble" "oracular" "plucky")
-export COMPATIBLE_FLAVORS=("server" "desktop")
+export COMPATIBLE_SUITES=("noble")
+export COMPATIBLE_FLAVORS=("server")
 
 function config_image_hook__rock-5b() {
     local rootfs="$1"
     local overlay="$2"
     local suite="$3"
 
-    if [ "${suite}" == "jammy" ] || [ "${suite}" == "noble" ]; then
+    if [ "${suite}" == "noble" ]; then
         # Install panfork
         chroot "${rootfs}" add-apt-repository -y ppa:jjriek/panfork-mesa
         chroot "${rootfs}" apt-get update
