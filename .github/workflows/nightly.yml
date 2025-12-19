@@ -1,20 +1,40 @@
 name: Nightly Build
+
 on:
+  schedule:
+    - cron: '0 2 * * 0'  # Every Sunday at 2 AM UTC (Weekly)
   workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create GitHub Release'
+        required: false
+        type: boolean
+        default: true
 
 run-name: Nightly build Release
 
 jobs:
-
   config:
     runs-on: ubuntu-latest
-    name: Create martrix
+    name: Create matrix
     outputs:
       build_matrix: ${{ steps.build.outputs.build_matrix }}
       rootfs_matrix: ${{ steps.rootfs.outputs.rootfs_matrix }}
+      release_tag: ${{ steps.tag.outputs.tag }}
+      release_name: ${{ steps.tag.outputs.name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          TAG="nightly-$(date +'%Y.%m.%d')"
+          NAME="Nightly Build - $(date +'%Y-%m-%d')"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+          echo "Release name: $NAME"
 
       - name: Create build matrix
         id: build
@@ -58,8 +78,9 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: true
+          large-packages: false
           swap-storage: true
+          docker-images: true
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -79,13 +100,29 @@ jobs:
           debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
           udev dosfstools uuid-runtime git-lfs device-tree-compiler python3 \
           python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
+          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev \
+          dctrl-tools debian-archive-keyring
 
-      - name: Build
+      - name: Build rootfs
         shell: bash
-        run: sudo ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only --launchpad
+        run: |
+          set -e
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt: Building rootfs..."
+            if sudo ./build.sh --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --rootfs-only --launchpad; then
+              echo "Rootfs build successful!"
+              break
+            else
+              if [ $attempt -eq 3 ]; then
+                echo "All attempts failed!"
+                exit 1
+              fi
+              echo "Build failed, retrying in 30 seconds..."
+              sleep 30
+            fi
+          done
 
-      - name: Upload
+      - name: Upload rootfs artifact
         uses: actions/upload-artifact@v4
         with:
             name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
@@ -95,7 +132,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     needs: [rootfs, config]
-    name: Build image 
+    name: Build image
     strategy:
         matrix: ${{ fromJson(needs.config.outputs.build_matrix) }}
     steps:
@@ -106,8 +143,9 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: true
+          large-packages: false
           swap-storage: true
+          docker-images: true
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -118,7 +156,7 @@ jobs:
           source config/suites/${{ matrix.suite }}.sh
           echo "suite_version=$RELASE_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Checkout rootfs
+      - name: Download rootfs artifact
         uses: actions/download-artifact@v4
         with:
             name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-rootfs
@@ -133,20 +171,162 @@ jobs:
           debootstrap flex libssl-dev bc rsync kmod cpio xz-utils fakeroot parted \
           udev dosfstools uuid-runtime git-lfs device-tree-compiler python3 \
           python-is-python3 fdisk bc debhelper python3-pyelftools python3-setuptools \
-          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev dctrl-tools
+          python3-distutils-extra python3-pkg-resources swig libfdt-dev libpython3-dev \
+          dctrl-tools
 
-      - name: Build
+      - name: Build image
         shell: bash
         run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
 
-      - name: Upload To Github Release
-        uses: xresloader/upload-to-github-release@v1
+      - name: Prepare release files
+        run: |
+          cd images
+          for file in ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*; do
+            if [ -f "$file" ]; then
+              # Generate checksums
+              sha256sum "$file" > "$file.sha256"
+              md5sum "$file" > "$file.md5"
+            fi
+          done
+          ls -lh
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
         with:
-          default_release_name: ubuntu-${{ steps.vars.outputs.suite_version }}-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}
-          file: ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
-          prerelease: true
-          overwrite: true
+          name: image-${{ matrix.board }}-${{ matrix.suite }}-${{ matrix.flavor }}
+          path: |
+            ./images/ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*
+          if-no-files-found: error
+          retention-days: 2
 
       - name: Clean cache
         shell: bash
         run: sync && sudo rm -rf ./images/ ./build/ && sync
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [config, build]
+    name: Create GitHub Release
+    if: ${{ github.event.inputs.create_release != 'false' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-*
+          path: release-assets/
+          merge-multiple: true
+
+      - name: List release files
+        run: |
+          echo "Release assets:"
+          ls -lhR release-assets/
+
+      - name: Create release notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          # Nightly Build - Automated Testing Release
+          
+          ## Build Information
+          - **Build Date**: $(date +'%Y-%m-%d %H:%M:%S UTC')
+          - **Build Type**: Automated Nightly/Weekly Build
+          - **Status**: ⚠️ Testing Build (Not for Production)
+          
+          ## What's Included
+          This release contains pre-built Ubuntu images for all supported Rockchip boards across multiple suites and flavors.
+          
+          ## Installation
+          
+          ### 1. Download
+          Choose the image file for your board, suite, and flavor:
+          - Format: `ubuntu-VERSION-preinstalled-FLAVOR-arm64-BOARD.img.xz`
+          
+          ### 2. Verify (Recommended)
+          ```bash
+          sha256sum -c <filename>.sha256
+          ```
+          
+          ### 3. Extract
+          ```bash
+          xz -d <filename>.img.xz
+          ```
+          
+          ### 4. Flash to SD Card
+          ```bash
+          sudo dd if=<filename>.img of=/dev/sdX bs=4M status=progress oflag=sync
+          ```
+          **⚠️ Replace `/dev/sdX` with your SD card device**
+          
+          ### 5. Boot
+          - Insert SD card
+          - Power on your board
+          - Wait for first boot (2-3 minutes)
+          
+          ## Default Credentials
+          - **Username**: `ubuntu`
+          - **Password**: `ubuntu`
+          
+          **🔒 Change password immediately after first login!**
+          
+          ## Suites Available
+          - **Noble** (24.04 LTS)
+          - **Jammy** (22.04 LTS)
+          
+          ## Flavors Available
+          - **Server**: Minimal server installation
+          - **Desktop**: Full desktop environment
+          
+          ## Supported Boards
+          All Rockchip boards in `config/boards/` directory
+          
+          ## ⚠️ Important Notes
+          - This is an **automated testing build**
+          - Not recommended for production use
+          - For stable releases, use tagged versions (v*.*.*)
+          - Report issues: https://github.com/RAM-UNLOK/ubuntu-rockchip/issues
+          
+          ## Checksums
+          SHA256 and MD5 checksums provided for all files.
+          
+          ## Auto-Cleanup
+          Old nightly releases are automatically removed (keeps last 4).
+          EOF
+
+      - name: Create or update release
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_TOKEN }}
+        run: |
+          TAG="${{ needs.config.outputs.release_tag }}"
+          NAME="${{ needs.config.outputs.release_name }}"
+          
+          # Check if release exists
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG exists, deleting old assets..."
+            gh release delete "$TAG" --repo "${{ github.repository }}" --yes
+          fi
+          
+          # Create new release
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$NAME" \
+            --notes-file release-notes.md \
+            --prerelease \
+            release-assets/*
+
+      - name: Cleanup old nightly releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.ACTION_TOKEN }}
+        run: |
+          # Keep only the last 4 nightly releases
+          gh release list --repo "${{ github.repository }}" \
+            --limit 100 \
+            --json tagName,isPrerelease \
+            --jq '.[] | select(.isPrerelease == true and (.tagName | startswith("nightly-"))) | .tagName' \
+            | tail -n +5 \
+            | xargs -I {} gh release delete {} --repo "${{ github.repository }}" --yes || true
+          
+          echo "Cleanup completed!"
