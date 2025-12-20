@@ -178,16 +178,25 @@ jobs:
         shell: bash
         run: sudo ./build.sh --board=${{ matrix.board }} --suite=${{ matrix.suite }} --flavor=${{ matrix.flavor }} --launchpad
 
+      - name: Fix file permissions
+        run: |
+          # Change ownership of images directory from root to runner
+          sudo chown -R runner:runner images/
+          ls -lah images/
+
       - name: Prepare release files
         run: |
           cd images
           for file in ubuntu-*-preinstalled-${{ matrix.flavor }}-arm64-${{ matrix.board }}.*; do
             if [ -f "$file" ]; then
+              echo "Processing: $file"
               # Generate checksums
               sha256sum "$file" > "$file.sha256"
               md5sum "$file" > "$file.md5"
+              echo "Generated checksums for $file"
             fi
           done
+          echo "All files:"
           ls -lh
 
       - name: Upload image artifact
